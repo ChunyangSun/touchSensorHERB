@@ -15,7 +15,7 @@ class arduinoROSNode:
 
 	def getSerialFromArduino(self):
 
-		serialAddresses = list({'/dev/ttyACM2', '/dev/ttyACM1', '/dev/ttyACM0', '/dev/ttyS0','/dev/ttyS4'})
+		serialAddresses = list({'/dev/ttyACM2', '/dev/ttyACM1', '/dev/ttyACM0', '/dev/ttyS0','/dev/ttyS4', '/dev/COM1','/dev/COM2','/dev/COM3'})
 
 		for serialAddress in serialAddresses:
 			try:
