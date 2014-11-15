@@ -9,7 +9,7 @@ class arduinoROSNode:
 
 		print "hello ROS"
 
-		self.pub = rospy.Publisher('arduinoROSNode', String)
+		self.pub = rospy.Publisher('topicTouch', String)
 		rospy.init_node('arduinoPub', anonymous = True)
 		self.r = rospy.Rate(10) # 10hz
 
