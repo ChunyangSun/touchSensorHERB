@@ -51,14 +51,20 @@ class ListenToArmTorque():
         self.c_ep = 0.2
         self.c_joint5 = 0.1
         self.c_joint6 = 0.2
-        self.mn_sp = 0;
-        self.mn_sr = 0;
-        self.mn_sy = 0;
-        self.mn_er = 0;
-        self.mn_ep = 0;
-        self.mn_joint5 = 0;
-        self.mn_joint6 = 0;
+        self.mn_sp = 4;
+        self.mn_sr = 1;
+        self.mn_sy = 1;
+        self.mn_er = 1;
+        self.mn_ep = 1;
+        self.mn_joint5 = 1;
+        self.mn_joint6 = 1;
+
+        # filter out very large torque 
+        self.mn_fil_thr = 2
+
         self.j = dict()
+
+        self.f = open('torque_log_listen', 'w')
 
         # subscriber
         rospy.init_node('armTorqueListenAndTalk', anonymous=True)
@@ -73,15 +79,19 @@ class ListenToArmTorque():
         
         print "publisher"
         if time.time() - self.start > 2:
+            
             for i in xrange(self.n):
                 
                 self.msg.data = [float(self.sp_fil_[i]), float(self.sr_fil_[i]), float(self.sy_fil_[i]), 
                 float(self.er_fil_[i]), float(self.ep_fil_[i]), float(self.joint5_fil_[i]), float(self.joint6_fil_[i])]
+               
                 self.pub.publish(self.msg)
+               
                 print self.msg 
             
+                self.writeToFile()
+            
             self.r.sleep()
-            print 'after sleep'
 
     def callback(self, data):
         ''' callback for listening to the arm torques '''
@@ -122,9 +132,8 @@ class ListenToArmTorque():
 
                 self.counter = 0
                 self.publishToFilteredTorque()
-                print "h"
         
-        if int(self.end - self.start)%self.iterval == 20:
+        if int(self.end - self.start)%self.iterval == 10:
             self.visualize1()
 
     def listener(self):
@@ -165,7 +174,7 @@ class ListenToArmTorque():
 
     def visualize1(self):
 
-        print len(self.sp_fil)
+        # print len(self.sp_fil)
 
         plt.figure(2)
         plt.subplot(711)
@@ -201,19 +210,29 @@ class ListenToArmTorque():
         mn_fil = mn_glb
 
         for p in points:
+        
             # update the max difference 
             max_diff = max(max_diff, abs(p-mn))
-            # low pass filter 
+
+            # print self.mn_fil_thr*mn_fil
+            # low pass filter: the absolute value cannot be larger than mean 
             if abs(p - mn) < factor * abs(max_diff):
                 filteredPoints.append(p)
             else:
                 filteredPoints.append(mn_fil)
+            
+
             # update the mean after adding each point 
             mn_fil = sum(filteredPoints)*1.0/len(filteredPoints)
+        
         # store the global mean 
         return (filteredPoints, filteredPoints[-1])
 
+    def writeToFile(self):
 
+        self.f.write(str(self.msg))
+        self.f.write('\n')
+        
 # if __name__ == '__main__':
 #     listener = ListenToArmTorque()
 #     listener.listener()
