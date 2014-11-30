@@ -20,9 +20,6 @@ from multiprocessing import Process
 def main(robot, planning_env, planner, iterations = 1, show = False):
     pass 
 
-def getTask(idx):
-    tasks = [listenToArmTorque.listener(), planner.moveArm()]
-    return tasks[idx]
 
 if __name__ == "__main__":
     
@@ -85,6 +82,7 @@ if __name__ == "__main__":
     else:
         print 'Unknown planner option: %s' % args.planner
         exit(0)
+
 
     # First setup the environment and the robot
     visualize = args.visualize
