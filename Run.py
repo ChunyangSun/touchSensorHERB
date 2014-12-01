@@ -83,7 +83,7 @@ if __name__ == "__main__":
         print 'Unknown planner option: %s' % args.planner
         exit(0)
 
-    IPython.embed()
+    # IPython.embed()
     # First setup the environment and the robot
     visualize = args.visualize
     planner.listenToFilteredTorque()

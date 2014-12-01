@@ -89,15 +89,35 @@ class ListenToArmTorque():
                
                 print self.msg 
             
-                self.writeToFile()
+                # self.writeToFile(self.msg)
             
             self.r.sleep()
 
+    def publishToTorque(self):
+        ''' publish the raw torque '''
+        torques = []
+        print "publisher raw "
+        if time.time() - self.start > 2:
+            
+            for i in xrange(7):
+                torques.append(float(self.torques[i]))
+
+            self.msg.data = torques
+            self.pub.publish(self.msg)
+               
+            print self.msg 
+            
+            # self.writeToFile(self.msg)
+            
+            self.r.sleep()
+
+
     def callback(self, data):
         ''' callback for listening to the arm torques '''
-
+        # print 'callback'
         self.end = time.time()
         self.torques = data.torques
+
 
         self.sp.append(float(self.torques[0])) # push up - decrease  
         self.sr.append(float(self.torques[1])) # pushing inward - increase 
@@ -107,6 +127,7 @@ class ListenToArmTorque():
         self.joint6.append(float(self.torques[5]))
         self.ep.append(float(self.torques[6]))
 
+        self.writeToFile(self.sp)
         # if int(self.end - self.start) % self.iterval == 7:
         #     self.visualize()
 
@@ -114,24 +135,27 @@ class ListenToArmTorque():
         if self.end - self.start > 1:
             self.counter += 1
             if self.counter == self.n:
-                (self.sp_fil_, self.mn_sp) = self.filter(self.sp[-self.n: ], self.c_sp, self.mn_sp)
-                (self.sr_fil_, self.mn_sr) = self.filter(self.sr[-self.n: ],  self.c_sr, self.mn_sr)
-                (self.sy_fil_, self.mn_sy) = self.filter(self.sy[-self.n: ],  self.c_sy, self.mn_sy)
-                (self.er_fil_, self.mn_er) = self.filter(self.er[-self.n: ],  self.c_er, self.mn_er)
-                (self.ep_fil_, self.mn_ep) = self.filter(self.ep[-self.n: ],  self.c_ep, self.mn_ep)
-                (self.joint5_fil_, self.mn_joint5) = self.filter(self.joint5[-self.n: ],  self.c_joint5, self.mn_joint5)
-                (self.joint6_fil_, self.mn_joint6) = self.filter(self.joint6[-self.n: ],  self.c_joint6, self.mn_joint6)
+                # (self.sp_fil_, self.mn_sp) = self.filter(self.sp[-self.n: ], self.c_sp, self.mn_sp)
+                # (self.sr_fil_, self.mn_sr) = self.filter(self.sr[-self.n: ],  self.c_sr, self.mn_sr)
+                # (self.sy_fil_, self.mn_sy) = self.filter(self.sy[-self.n: ],  self.c_sy, self.mn_sy)
+                # (self.er_fil_, self.mn_er) = self.filter(self.er[-self.n: ],  self.c_er, self.mn_er)
+                # (self.ep_fil_, self.mn_ep) = self.filter(self.ep[-self.n: ],  self.c_ep, self.mn_ep)
+                # (self.joint5_fil_, self.mn_joint5) = self.filter(self.joint5[-self.n: ],  self.c_joint5, self.mn_joint5)
+                # (self.joint6_fil_, self.mn_joint6) = self.filter(self.joint6[-self.n: ],  self.c_joint6, self.mn_joint6)
 
-                self.sp_fil += self.sp_fil_
-                self.sr_fil += self.sr_fil_      
-                self.sy_fil += self.sy_fil_ 
-                self.er_fil += self.er_fil_
-                self.ep_fil += self.ep_fil_ 
-                self.joint5_fil += self.joint5_fil_ 
-                self.joint6_fil += self.joint6_fil_ 
+                # self.sp_fil += self.sp_fil_
+                # self.sr_fil += self.sr_fil_      
+                # self.sy_fil += self.sy_fil_ 
+                # self.er_fil += self.er_fil_
+                # self.ep_fil += self.ep_fil_ 
+                # self.joint5_fil += self.joint5_fil_ 
+                # self.joint6_fil += self.joint6_fil_ 
 
                 self.counter = 0
-                self.publishToFilteredTorque()
+
+                
+                # self.publishToFilteredTorque()
+                self.publishToTorque()
         
         if int(self.end - self.start)%self.iterval == 10:
             self.visualize1()
@@ -174,8 +198,6 @@ class ListenToArmTorque():
 
     def visualize1(self):
 
-        # print len(self.sp_fil)
-
         plt.figure(2)
         plt.subplot(711)
         plt.plot(self.sp_fil_, 'bo')
@@ -202,6 +224,7 @@ class ListenToArmTorque():
         plt.close()
 
     def filter(self, points, factor, mn_glb):
+
         filteredPoints = []
         max_diff = 0 
         # take mean 
@@ -221,16 +244,16 @@ class ListenToArmTorque():
             else:
                 filteredPoints.append(mn_fil)
             
-
             # update the mean after adding each point 
             mn_fil = sum(filteredPoints)*1.0/len(filteredPoints)
         
         # store the global mean 
         return (filteredPoints, filteredPoints[-1])
 
-    def writeToFile(self):
 
-        self.f.write(str(self.msg))
+    def writeToFile(self, sth):
+
+        self.f.write(str(sth))
         self.f.write('\n')
         
 # if __name__ == '__main__':
