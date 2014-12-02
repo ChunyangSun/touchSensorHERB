@@ -8,6 +8,7 @@ from scipy.spatial.distance import pdist
 # visualization
 import matplotlib.pyplot as plt
 import numpy as np
+import copy
 
 from HerbRobot import HerbRobot
 
@@ -15,30 +16,34 @@ class SimpleMove():
 	def __init__(self, planning_env, robot):
 		self.planning_env = planning_env
 		self.robot = robot
-		self.magic_num = 40;
-		self.n = 15;
+		self.magic_num = 50;
+		self.n = 20;
 		self.m = self.magic_num - self.n;
 		
 		self.start = time.time()
 		self.last_time_stamp = time.time();
 
-		self.dof_values = []
 		self.n_joints = 7
+
 		
 		# lists 
 		self.temp = [[] for i in xrange(self.n_joints)]
-		self.old_dof_values = [0 for i in xrange(self.n_joints)]
+		self.DOF_values = [0 for i in xrange(self.n_joints)]
+		self.old_DOF_values = [0 for i in xrange(self.n_joints)]
 		self.joints = [[] for i in xrange(self.n_joints)]
 		self.v0 = [0 for i in xrange(self.n_joints)]
 		self.v1 = [0 for i in xrange(self.n_joints)]
 		self.DOF_limit_low = [0 for i in xrange(self.n_joints)]
 		self.DOF_limit_hig = [0 for i in xrange(self.n_joints)]
+		self.v0 = [0 for i in xrange(self.n_joints)]
 
 		# threshholds 
-		self.thr = 0.1
+		self.thr = 0.2
 		self.der_thr = 0.1
 		self.max_speed = 0.5
 		self.vel_limit = [0.75, 0.75, 0.75, 0.75, 0.75, 0.75, 0.75]
+		self.num_stablize = 5
+		self.thr_v0 = 0.1
 
 		# gains
 		self.epslon = 0.01
@@ -53,24 +58,30 @@ class SimpleMove():
 		self.total_cost = [0 for i in xrange(self.n_joints)]
 		self.c_torque = [0 for i in xrange(self.n_joints)]
 		self.c_DOF = [0 for i in xrange(self.n_joints)]
-		self.c_old = [0 for i in xrange(self.n_joints)]
 		self.c_t = [0 for i in xrange(self.n_joints)]
+		self.c = [[] for i in xrange(self.n_joints)]
 		self.DOF_too_low = [False for i in xrange(self.n_joints)]
 		self.DOF_too_high = [False for i in xrange(self.n_joints)]
+		self.mn0 = [0 for i in xrange(self.n_joints)]
+		self.mn1 = [0 for i in xrange(self.n_joints)]
 
 		# model
 		self.models = []
 		self.best_vars = []
-		self.var_thr_weight = 0.1
+		self.var_thr_weight = 1
 		self.is_actuating = False 
-		self.fs = [open('sp', 'r'), open('sp', 'r'), open('sp', 'r'), open('sp', 'r'), open('sp', 'r'),open('sp', 'r'), open('sp', 'r')]
+		self.fs = [open('templates/sp', 'r'), open('templates/sr', 'r'), open('templates/sy', 'r'), open('templates/er', 'r'), open('templates/joint5', 'r'),open('templates/joint6', 'r'), open('templates/ep', 'r')]
 		
 		for f in self.fs:
 			self.models.append(self.readModel(f))
 
 		# write to file 
 		self.count_write = 0
-		self.f = open('torque_log_simple_move', 'w')
+		self.f_c = open('data/c', 'w')
+		self.f_mn0 = open('data/mn0', 'w')
+		self.f_mn1 = open('data/mn1', 'w')
+		self.f_v1 = open('data/v1', 'w')
+		self.f_v0 = open('data/v0', 'w')
 
 		print "simple move"
 
@@ -80,20 +91,18 @@ class SimpleMove():
 
 		# get the current dof values, and use it for forward collision check  
 		self.DOF_values = self.robot.left_arm.GetDOFValues()
-		c = [0 for i in xrange(self.n_joints)]
-
+	
 		# calculate the new dof values 
 		for i in xrange(len(self.joints)-1):
 
 			# get new cost 
 			# c[i] = self.getCost(i)
-			c[i] = self.getCostWithTemplate(i)
+			self.c[i].append(self.getCostWithTemplate(i))
 
 			self.DOF_values[i] += self.v1[i] * t_d
 
 			# derivative of cost 
-			self.c_t[i] = c[i] - self.c_old[i]
-
+			self.c_t[i] = self.c[i][-1] - self.c[i][-2]
 
 			# proportional to the derivative of cost 
 			if self.c_t[i] < 0 and abs(self.c_t[i]) < self.der_thr: 
@@ -111,36 +120,46 @@ class SimpleMove():
 
 			# check velocity limits
 			if abs(self.v1[i]) > self.vel_limit[i]:
-				self.v1[i] = self.v1[i]/np.linalg.norm(self.v1) * self.max_speed 
+				self.v1[i] = self.v1[i]/np.linalg.norm(self.v1[i]) * self.max_speed 
 
+			if self.v1[i] == 0:
+				self.v1[i] = 0.9*self.v0[i]
+
+			# self.c_old[i] = copy.deepcopy(self.c[i])
+			self.old_DOF_values[i] = copy.deepcopy(self.DOF_values[i])
+		
+		# IPython.embed()
 		print 'self.c_t'
 		print self.c_t
-		print "c"
-		print c 
-		self.c_old = c
-		self.old_DOF_values = self.DOF_values
-		# IPython.embed()
-
+		# print "c"
+		# print self.c
+		# print self.v1
+		# print self.v0
+		
+		# print 'mn1' 
+		# print self.mn1
+		# print 'mn0'
+		# print self.mn0 
+		
 
 	def moveArm(self, msg):
 		print 'move arm 1'
+
 		# call back 
 		d = list(msg.data)
 
+		# record everything 
 		for i in xrange(self.n_joints):
 			self.temp[i] += [d[i]]
 			if len(self.temp[0]) > self.magic_num:
-				self.joints = self.temp
+				self.joints[i] = self.temp[i][-self.magic_num:]
+				self.temp = [[] for i in xrange(self.n_joints)]
 
+		# print self.joints
 		# start from some number of fresh values 
-		if len(self.joints[0]) < self.magic_num:
-			return
-			
+		if len(self.joints) < self.num_stablize:
+			return	
 		# disgard the old values since they don't affect us anymore
-		# elif len(self.joints[0]) > 2*self.magic_num:
-		# 	for i in xrange(self.n_joints):
-		# 		self.joints[i] = self.joints[i][-self.magic_num:]
-
 		else:
 			print 'move arm 2'
 			# start to get v1 and wait for some time before moving arm  
@@ -149,19 +168,21 @@ class SimpleMove():
 			time_clapsed = time.time() - self.start
 			# print 'vars'
 			# print self.best_vars
-			print 'v1'
-			print self.v1
+			# print 'v1'
+			# print self.v1
 
 			# end program in some time 
-			print self.DOF_too_high
-			print self.DOF_too_low
-			print self.is_actuating
-			if time_clapsed > 2 and self.is_actuating == False and self.DOF_too_high == False and self.DOF_too_low == False: 
+			# print self.DOF_too_high
+			# print self.DOF_too_low
+			# print self.is_actuating
+			# print time_clapsed
+			self.writeToFile()
+
+			if time_clapsed > 2 and self.is_actuating == False and set(self.DOF_too_high) == set([False]) and set(self.DOF_too_low) == set([False]): 
 				# move the spercific DOF: 11 12 13 14 15 16 17
 				# 0 shoulder, 1 shoulder, 2 forarm turn, 3 elbow up, 4 rotate wrist, 5 turn wrist, 6 rotate hand				
 				# calculate the configuration to feed to PlanToConfig
 
-				# self.writeToFile()
 				print "inside"
 				
 				diff = np.linalg.norm(np.array(self.DOF_values - self.robot.left_arm.GetDOFValues()))
@@ -178,6 +199,7 @@ class SimpleMove():
 
 						try:
 							print 'try'
+
 							# IPython.embed()
 							self.robot.left_arm.Servo(self.v1)
 
@@ -193,12 +215,19 @@ class SimpleMove():
 								
 				self.last_time_stamp = time.time()
 
+	def velocityCallBack(self, msg):
+		self.v0 = msg.data
+		if self.v0 < self.thr_v0 and self.v0 > -self.thr_v0:
+			self.v0 = 0
 
 	def listenToFilteredTorque(self):
 		
 		rospy.init_node('filteredTorqueListener', anonymous=True)
 		topic = rospy.get_param('~topic', 'fil_torque_topic')
 		rospy.Subscriber(topic, Float64MultiArray, self.moveArm)
+		
+		topic2 = rospy.get_param('~topic2', 'velocity_topic')
+		rospy.Subscriber(topic2, Float64MultiArray, self.velocityCallBack)
 
 		rospy.spin()
 
@@ -207,12 +236,11 @@ class SimpleMove():
 		'''1. larger torque, larger cost
 		   2. closer to joint limit, larger cost '''
 
-		self.v0[i] = self.robot.manip.GetVelocity()[i]
-
 		# cost from torque 
-		self.mn1 = sum(self.joints[i][-self.m:])/self.m  
-		self.mn0 = sum(self.joints[i][-self.magic_num:-self.m])/(self.n) 
-		diff = self.mn1 - self.mn0 
+		self.mn1[i] = sum(self.joints[i][-self.m:])/self.m  
+		self.mn0[i] = sum(self.joints[i][-self.magic_num:-self.m])/(self.n) 
+
+		diff = self.mn1[i] - self.mn0[i] 
 
 		self.c_torque[i] = abs(self.torque_gain[i] * diff) # self.c_torque can be + or -  
 
@@ -242,22 +270,23 @@ class SimpleMove():
 		(best_var, best_data) = self.compare(self.models[i], self.joints[i])
 		
 		self.best_vars.append(best_var)
+		# print "best var" + str(best_var)
 
 		# set flag 
 		if best_var < self.var_thr_weight: 
 			self.is_actuating = True
 			# update threshhold to be proportional to the best vars TODO 
 			self.var_thr_weight = self.var_thr_weight*20/np.mean(np.array(self.best_vars))
+
+		else: self.is_actuating = False 
+
+		# print self.var_thr_weight
  
-		else: 
-			self.is_actuating = False 
-		
 
 		if self.is_actuating == True: print "actuating " 
 		
 		# call get cost 
 		return self.getCost(i)
-
 
 
 	def compare(self, model, data):
@@ -268,6 +297,7 @@ class SimpleMove():
 	    model = np.array(model)
 	    min_var = 500 
 	    var = []
+	    min_idx = 0
 	    mn_m = [np.mean(model) in xrange(l_m)]
 
 	    for i in xrange(len(data)- len(model)):
@@ -330,18 +360,27 @@ class SimpleMove():
 
 	def writeToFile(self):
 
-	    self.count_write +=1 
-	    # self.f.write('')
-	    # self.f.write("joints ")
-	    self.f.write(str(self.c_t))
-	    self.f.write('\n')
+		self.count_write +=1 
+		# self.f.write('')
+		# self.f.write("joints ")
+		# self.f.write(str(self.c_t))
+		# self.f.write('\n')
 
-	    # self.f.write('mn1 ')
-	    # self.f.write(str(self.mn1))
-	    # self.f.write('mn0 ')
-	    # self.f.write(str(self.mn0))
-	    # self.f.write('v1 ')
-	    # self.f.write(str(self.v1))
+		self.f_c.write(str(self.c))
+		self.f_c.write('\n')
+
+		self.f_mn1.write(str(self.mn1[0]))
+		self.f_mn1.write('\n')
+
+		self.f_mn0.write(str(self.mn0[0]))
+		self.f_mn0.write('\n')
+
+		self.f_v1.write(str(self.v1))
+		self.f_v1.write('\n')
+
+		self.f_v0.write(str(self.v0))
+		self.f_v0.write('\n')
+
 	    # self.f.write('diff ')
 	    # self.f.write(str(self.DOF_values - self.robot.left_arm.GetDOFValues()))
 	    # self.f.write('\n')
