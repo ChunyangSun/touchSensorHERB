@@ -280,7 +280,7 @@ class SimpleMove():
 				self.joints[i] = self.temp[i][-self.magic_num:]
 				self.temp = [[] for i in xrange(self.n_joints)]
 
-		# print self.joints
+
 		# start from some number of fresh values 
 		if len(self.joints) < self.num_stablize:
 			return	
