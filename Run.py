@@ -1,21 +1,20 @@
 # !/usr/bin/env python
 
-import argparse, numpy, openravepy, time, IPython
-import roslib
-roslib.load_manifest("touchSensor")
-
-import herbpy, prpy, logging, numpy, sys
-
 from HerbRobot import HerbRobot
 from HerbEnvironment import HerbEnvironment
-# from ListenToArmTorque import ListenToArmTorque
+
 from ListenToArmTorque import ListenToArmTorque
 
 from SimpleMove import SimpleMove
-# from SimpleMove import SimpleMove
-# impoer threading and process
-import threading, os 
-from multiprocessing import Process
+from FancyMove import FancyMove
+import argparse, numpy, openravepy, time, IPython
+import numpy as np 
+
+import roslib
+roslib.load_manifest("touchSensor")
+
+import herbpy, prpy, logging, sys
+
 
 def main(robot, planning_env, planner, iterations = 1, show = False):
     pass 
@@ -35,6 +34,7 @@ if __name__ == "__main__":
     parser.add_argument('-s', '--sim', action='store_true',
                         help='simulation mode')
     parser.add_argument('-gui', '--viewer', nargs='?', const=True, help='attach a viewer of the specified type')
+    # parser.add_argument('-o', '--option', nargs='?', default="touch", help='choose option from touch and push')
 
 
     args = parser.parse_args()
@@ -47,7 +47,7 @@ if __name__ == "__main__":
                    'segway_sim':True,
                    'vision_sim':True}
 
-    if args.sim == "True":
+    if args.sim == True:
         # uncomment for simulation
         env = openravepy.Environment()
         robot = HerbRobot(env, args.manip)
@@ -55,6 +55,8 @@ if __name__ == "__main__":
 
     else:
         env, robot = herbpy.initialize(**herbpy_args)
+        left_manip = robot.GetManipulator('left')
+        robot.manip = left_manip
     
         openravepy.RaveInitialize(True, level=openravepy.DebugLevel.Info)
         openravepy.misc.InitOpenRAVELogging()
@@ -62,18 +64,13 @@ if __name__ == "__main__":
         if args.debug:
             openravepy.RaveSetDebugLevel(openravepy.DebugLevel.Debug)
         
-        left_manip = robot.GetManipulator('left')
-        robot.SetActiveDOFs(left_manip.GetArmIndices())
-
-        robot.manip = left_manip
-        robot.SetActiveManipulator('left')
-        robot.SetActiveDOFs(robot.manip.GetArmIndices())
         robot.controller = openravepy.RaveCreateController(robot.GetEnv(), 'IdealController')
 
     env.SetViewer('qtcoin')
     env.GetViewer().SetName('Touch Me Not Viewer')
     planning_env = HerbEnvironment(robot)
-
+ 
+        
     # Next setup the planner
     if args.planner == 'simple':
         planner = SimpleMove(planning_env, robot)
@@ -83,9 +80,10 @@ if __name__ == "__main__":
         print 'Unknown planner option: %s' % args.planner
         exit(0)
 
+
     IPython.embed()
     # First setup the environment and the robot
     visualize = args.visualize
-    planner.listenToFilteredTorque()
+    planner.Listener()
 
     main(robot, planning_env, planner, args.iterations, not args.noshow)

@@ -1,5 +1,5 @@
-# listener and subscriber  
 import rospy, std_msgs.msg
+
 from std_msgs.msg import Float64MultiArray
 from std_msgs.msg import String
 
@@ -7,27 +7,26 @@ import owd_msgs.msg, owd_msgs.msg._WAMState, owd_msgs.msg._WAMInternals
 
 import argparse, numpy, openravepy, time, IPython, math
 
-from scipy.spatial.distance import pdist
 # visualization
 import matplotlib.pyplot as plt
 import numpy as np
 import copy
+from scipy.spatial.distance import pdist
 
 from HerbRobot import HerbRobot
 
-class SimpleMove():
+class FancyMove():
 	def __init__(self, planning_env, robot):
 		self.planning_env = planning_env
 		self.robot = robot
+
 		self.magic_num = 5;
 		self.n = 2;
 		self.m = self.magic_num - self.n;
-		
+		self.n_joints = 7
 		self.start = time.time()
 		self.last_time_stamp = time.time();
-
-		self.n_joints = 7
-
+		
 		
 		# lists 
 		self.temp = [[] for i in xrange(self.n_joints)]
@@ -48,9 +47,7 @@ class SimpleMove():
 		self.dynamic_torque_old = [0 for i in xrange(self.n_joints)]
 
 		# threshholds 
-		self.thr = 0.08
-		self.der_thr = 0.1
-		self.max_speed = 0.5
+		self.thr = 0.05
 		self.vel_limit = [0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6]
 		self.num_stablize = 5
 		self.thr_v0 = 0.1
@@ -58,14 +55,13 @@ class SimpleMove():
 		self.noMoreMotionAllowed = False 
 		self.actuation_count = 0
 		self.freezeStart = 0
+		self.max_speed = 0.4
 
 		# gains
 		self.epslon = 0.01
 		self.small_gain = 0.9 
-		self.max_cost = 5
 		self.small_angle = 0.2
 		self.gains = 	   [10, 0, 0, 0, 0, 0, 0]
-		self.dof_gain =    [1, 1, 1, 1, 1, 1, 1]
 		self.torque_gain = [0.5, 0, 0, 0, 0, 0, 0]
 
 		# costs
@@ -74,11 +70,12 @@ class SimpleMove():
 		self.c_DOF = [0 for i in xrange(self.n_joints)]
 		self.c_t = [0 for i in xrange(self.n_joints)]
 		self.c = [[] for i in xrange(self.n_joints)]
-		self.DOF_too_low = [False for i in xrange(self.n_joints)]
-		self.DOF_too_high = [False for i in xrange(self.n_joints)]
 		self.mn0 = [0 for i in xrange(self.n_joints)]
 		self.mn1 = [0 for i in xrange(self.n_joints)]
 		self.c_t_list = [[] for i in xrange(self.n_joints)]
+
+		# flag 
+		self.pushed = True 
 
 		# model
 		self.models = []
@@ -89,6 +86,20 @@ class SimpleMove():
 		for f in self.fs:
 			self.models.append(self.readModel(f))
 
+		# touch sensor 
+		self.action = "r"
+		self.sensor_idx = 0
+		self.touch_time = 0
+		self.old_touch_time = 0
+
+		# upper arm: 0 3 4 1
+		#			 y w g r
+
+		# lower arm: 2:inner pad 5:outter pad
+		#			 b           w(b) 
+		# 1: LSY 2: LSP 4: LE 
+		self.mapping = {0:-1, 3:-2, 4:1, 1:2, 5:4, 2:-4}
+
 		# write to file 
 		self.count_write = 0
 		self.f_c = open('data/c', 'w')
@@ -97,9 +108,66 @@ class SimpleMove():
 		self.f_v1 = open('data/v1', 'w')
 		self.f_v0 = open('data/v0', 'w')
 
-		print "simple move"
+		2.60778745
 
 
+		print "fancy move"
+
+############################## Touch ########################################
+
+	def getVelocityFromTouch(self):
+		''' when there is a change from r to t, set the velocity to 0.2 '''
+		touchSpeed = 0.15 
+
+		if self.action == "t" and self.touch_time > self.old_touch_time:
+			(jointToMove, sign) = self.mapTouchPadToJoint(self.sensor_idx)
+
+			# simply change the sign of speed so it goes to opposite direction
+			self.v1[jointToMove] = sign * touchSpeed 
+			print 'v1 touchhhhhhhh'
+			print self.v1
+
+		if self.touch_time == self.old_touch_time and self.pushed == False:
+			(jointToMove, sign) = self.mapTouchPadToJoint(self.sensor_idx)
+			
+			self.v1[jointToMove] = 0.8 * self.v0[jointToMove]
+
+			if self.v1[jointToMove] < 0.04: self.v1[jointToMove] = 0 
+
+			print 'n'
+
+		# reset touch time stamp 
+		self.old_touch_time = self.touch_time
+
+
+	def getVelocityFromTouch2(self):
+		''' keep the end effector unmoved while moving one joint '''
+		
+		desiredAngle = 40.0/180*np.pi
+
+		if self.action == "t" and self.touch_time > self.old_touch_time:
+			jointToMove = mapTouchPadToJoint(self.sensor_idx)
+			
+			jacob = self.manip.CalculateJacobian()
+			
+
+			self.v1[jointToMove] = touchSpeed
+
+		if self.touch_time == self.old_touch_time:
+			self.v1[jointToMove] = 0.9 * self.v0[jointToMove] 
+
+		# reset touch time stamp 
+		self.old_touch_time = self.touch_time
+
+
+	def mapTouchPadToJoint(self, pad_idx):
+
+		if pad_idx in self.mapping.keys():
+			# -1 so that the indexing for joints are 0 1 3  
+			return (abs(self.mapping[pad_idx]) - 1), np.sign(self.mapping[pad_idx]) 
+
+
+################################ Push ########################################
 	def isPushedTorqueIncrease(self, i):
     	# when cost goes high suddenly or low suddenly --> the arm is pushed, 
     	# i.e. the derivative of the cost is high in absoluate value 
@@ -114,17 +182,18 @@ class SimpleMove():
 			# if np.mean(self.c[i][-2:]) > 1.2*self.c_mean:
 			# 	IPython.embed()
 
-			if np.mean(self.c[i][-1:]) > 1.2*self.c_mean and self.c_t[i] > 0.2*self.getJointAverageFluctuation(i) and (not self.isActuating(i)) and self.c_t[i] > 0.2:	
+			if np.mean(self.c[i][-1:]) > 1.5*self.c_mean and self.c_t[i] > 0.5*self.getJointAverageFluctuation(i) and (not self.isActuating(i)) and self.c_t[i] > 0.5:	
 				print "pushed torque increase "
 				# IPython.embed()
 
 				return True 
 			else: return False 
 
+
 	def isPushedTorqueDecrease(self, i):
 		if len(self.c[i]) > 20 and i == 0 and self.c_t[i]!=0: 
 			
-			if np.mean(self.c[i][-1:]) < 0.8*self.c_mean and self.c_t[i] < -0.2*self.getJointAverageFluctuation(i) and (not self.isActuating(i)) and self.c_t[i] < -0.3:	
+			if np.mean(self.c[i][-1:]) < 0.5*self.c_mean and self.c_t[i] < -0.5*self.getJointAverageFluctuation(i) and (not self.isActuating(i)) and self.c_t[i] < -0.5:	
 				print "pushed torque decrease"
 				# IPython.embed()
 
@@ -165,11 +234,8 @@ class SimpleMove():
 			return True 
 
 
-	def calculateVelocity(self):
-		t_d = time.time() - self.last_time_stamp
-
-		# get the current dof values, and use it for forward collision check  
-		self.DOF_values = self.robot.left_arm.GetDOFValues()
+	def getVelocityFromPush(self):
+		t_d = 0.5
 	
 		# calculate the new dof values 
 		for i in xrange(1):
@@ -186,7 +252,13 @@ class SimpleMove():
 			
 				self.c_t[i] = self.c[i][-1] - self.c[i][-2]
 
-				if (time.time() - self.freezeStart) > 4:
+				if self.c_t[i] > 1: 
+					self.v1 = [0 for i in xrange(self.n_joints)]
+					self.manip.SetStiffness(0)
+					print " Warning!!! Going into gravity compensation mode"
+					break 
+
+				elif (time.time() - self.freezeStart) > 4:
 
 					# proportional to the derivative of cost 
 					if self.isPushedTorqueIncrease(i): 
@@ -196,7 +268,6 @@ class SimpleMove():
 							print "increase -lowerend - move to lllllllllllllllllllllllllll"
 							self.v1[i] = abs(self.gains[i]*self.c_t[i])
 							
-							if self.v0[i] > 0.05: self.v1[i] = 0.5*self.v0[i]
 						else:
 							print "incrase  -higherend -move to hhhhhhhhhhhhhhhhhhhhhhhhhhh "
 							# move to the higher end 
@@ -211,19 +282,21 @@ class SimpleMove():
 							print "incrase  -higherend -move to llllllllllllllllllllllllll "
 							# move to the lower end 
 							self.v1[i] = self.gains[i]*self.c_t[i]
+					else: 
+						self.pushed = False 
 
 				# print "v1"
 				# print self.v1
 				if abs(self.v1[i] - self.v0[i])> 0.2 and abs(self.v0[i] - self.v0_old[i]) > 0.2:
 					print "nooooooooooooooooooooooooooooooooooooo"
-					self.v1[i] = 0.9*self.v0[i] 
+					self.v1[i] = 0
 
 				if self.isActuating(i):
 					self.actuation_count += 1 
-					self.v1[i] = 0.9*self.v0[i]
+					self.v1[i] =  self.decay(self.v0[i])*self.v0[i]
 
 					if self.actuation_count == 3:
-						self.v1[i] = 0.9*self.v0[i]
+						self.v1[i] =  self.decay(self.v0[i])*self.v0[i]
 						print "freeze start"
 
 						# start timer 
@@ -234,25 +307,14 @@ class SimpleMove():
 
 				self.accel[i].append(self.v0[i] - self.v0_old[i]) 
 
-				
-				# decrease the speed when the arm is near joint limit 
-				if not self.canPushFurther(i):
-					print "reached joint limit!"
-					self.v1[i] = 0.2*self.v0[i]
-
-				# check velocity limits 
-				if abs(self.v1[i]) > self.vel_limit[i]:
-					self.v1[i] = self.v1[i]/np.linalg.norm(self.v1[i]) * self.max_speed 
 
 				# go along with what you were doing before if nothing happens
 				if self.v1[i] == 0:
-					self.v1[i] = 0.95*self.v0[i]
+					self.v1[i] = self.decay(self.v0[i])*self.v0[i]
+
 
 				# TODO: check if v0_old the same as self.v0
 				self.v0_old[i] = self.v0[i] 
-
-				# self.c_old[i] = copy.deepcopy(self.c[i])
-				self.old_DOF_values[i] = copy.deepcopy(self.DOF_values[i])
 				
 			# IPython.embed()
 			# print 'self.c_t'
@@ -273,22 +335,33 @@ class SimpleMove():
 		# call back 
 		d = list(msg.data)
 
-		# record everything 
 		for i in xrange(self.n_joints):
 			self.temp[i] += [d[i]]
 			if len(self.temp[0]) > self.magic_num:
 				self.joints[i] = self.temp[i][-self.magic_num:]
 				self.temp = [[] for i in xrange(self.n_joints)]
 
+		# get the current dof values, and use it for forward collision check  
+		self.DOF_values = self.robot.left_arm.GetDOFValues()
 
 		# start from some number of fresh values 
 		if len(self.joints) < self.num_stablize:
 			return	
-		# disgard the old values since they don't affect us anymore
 		else:
-			# print 'move arm 2'
-			# start to get v1 and wait for some time before moving arm  
-			self.calculateVelocity()
+
+			# get new velocity from push then touch because touch is priority 
+			# self.getVelocityFromPush()
+			self.getVelocityFromTouch()  
+
+			# decrease the speed when the arm is near joint limit 
+			if not self.canPushFurther(i):
+				print "reached joint limit!"
+				self.v1[i] = 0.1*self.v0[i]
+
+			# check velocity limits 
+			if abs(self.v1[i]) > self.vel_limit[i]:
+				self.v1[i] =  self.max_speed 
+
 
 			time_clapsed = time.time() - self.start
 			# print 'vars'
@@ -307,27 +380,29 @@ class SimpleMove():
 
 				# check goal collision
 				robot_DOF_values = self.robot.GetDOFValues()
+				# update LSY value 
 				robot_DOF_values[11] = self.DOF_values[0]
 
 				# don't go through the trouble of trying to move the arm 
 				if np.linalg.norm(np.array(self.v1)) > self.thr:
-					print "inside"
+					# print "inside"
 					# only try it when it's likely to be executed 
-					if self.planning_env.isValid(robot_DOF_values)!=1:
+					# if self.planning_env.isValid(robot_DOF_values)!=1:
 
-						try:
-							print 'try'
+					try:
+						print 'try'
+						pass
 
-							# IPython.embed()
-							self.robot.left_arm.Servo(self.v1)
-						except:
-							raise
-					else:
-						print "collision"
+						# IPython.embed()
+						self.robot.left_arm.Servo(self.v1)
+					except:
+						raise
+					# else:
+					# 	print "collision"
 
-				# self.visualize()
-								
-				self.last_time_stamp = time.time()
+				# end of execution, update everything 	
+				self.old_DOF_values = copy.deepcopy(self.DOF_values)
+				self.pushed = True 
 
 	def velocityCallBack(self, msg):
 		self.v0 = msg.data
@@ -340,10 +415,10 @@ class SimpleMove():
 		self.sensor_idx = int(msg_list[1])
 		self.touch_time = msg_list[2]
 
+
 		# IPython.embed()
 		print self.action, self.sensor_idx, self.touch_time
 
-		a = raw_input("touch sensor feedback")
 	
 	def positionCallBack(self, msg):
 		self.positions = msg.positions
@@ -354,7 +429,7 @@ class SimpleMove():
 		self.dynamic_torque = msg.data
 
 
-	def listenToTorque(self):
+	def Listener(self):
 		
 		rospy.init_node('filteredTorqueListener', anonymous=True)
 		topic = rospy.get_param('~topic', 'torque_topic')
@@ -367,11 +442,11 @@ class SimpleMove():
 		topic3 = rospy.get_param('~topic3', 'arduinoROSNode')
 		rospy.Subscriber(topic3, String, self.touchSensorCallBack)
 
-		topic4 = rospy.get_param('~topic4', '/left/owd/waminternals')
-		rospy.Subscriber(topic4, owd_msgs.msg.WAMInternals, self.positionCallBack)
+		# topic4 = rospy.get_param('~topic4', '/left/owd/waminternals')
+		# rospy.Subscriber(topic4, owd_msgs.msg.WAMInternals, self.positionCallBack)
 
-		topic5 = rospy.get_param('~topic5', 'dynamic_torque_topic')
-		rospy.Subscriber(topic5, Float64MultiArray, self.dynamicTorqueCallBack)
+		# topic5 = rospy.get_param('~topic5', 'dynamic_torque_topic')
+		# rospy.Subscriber(topic5, Float64MultiArray, self.dynamicTorqueCallBack)
 
 		rospy.spin()
 
@@ -422,6 +497,11 @@ class SimpleMove():
 		j = self.joints[i] # 50 values
 		return 0.5*np.std(j)
 
+
+	def decay(self, value):
+		''' return a new value that's smaller with the value and between 0 and 1 '''
+
+		return np.sin(5*value)
 
 	def compare(self, model, data):
 	    ''' find out the smallest distance with the model '''
