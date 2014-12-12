@@ -16,7 +16,7 @@ roslib.load_manifest("touchSensor")
 import herbpy, prpy, logging, sys
 
 
-def main(robot, planning_env, planner, iterations = 1, show = False):
+def main(robot, planning_env, planner, show = False):
     pass 
 
 
@@ -27,14 +27,10 @@ if __name__ == "__main__":
     parser.add_argument('-p', '--planner', type=str, default='simple')
 
     parser.add_argument('-m', '--manip', type=str, default='left')
-    parser.add_argument('-v', '--visualize', action='store_true')
-    parser.add_argument('-d', '--debug', action='store_true')
-    parser.add_argument('-n', '--noshow', action='store_true')
-    parser.add_argument('-i', '--iterations', type=int, default=1)
     parser.add_argument('-s', '--sim', action='store_true',
                         help='simulation mode')
     parser.add_argument('-gui', '--viewer', nargs='?', const=True, help='attach a viewer of the specified type')
-    # parser.add_argument('-o', '--option', nargs='?', default="touch", help='choose option from touch and push')
+    parser.add_argument('-y', '--style', nargs='?', default=1, help='choose option from 1 or 2')
 
 
     args = parser.parse_args()
@@ -61,8 +57,8 @@ if __name__ == "__main__":
         openravepy.RaveInitialize(True, level=openravepy.DebugLevel.Info)
         openravepy.misc.InitOpenRAVELogging()
 
-        if args.debug:
-            openravepy.RaveSetDebugLevel(openravepy.DebugLevel.Debug)
+        # if args.debug:
+        #     openravepy.RaveSetDebugLevel(openravepy.DebugLevel.Debug)
         
         robot.controller = openravepy.RaveCreateController(robot.GetEnv(), 'IdealController')
 
@@ -75,7 +71,7 @@ if __name__ == "__main__":
     if args.planner == 'simple':
         planner = SimpleMove(planning_env, robot)
     elif args.planner == 'fancy':
-        planner = FancyMove(planning_env, robot)
+        planner = FancyMove(planning_env, robot, args.style)
     else:
         print 'Unknown planner option: %s' % args.planner
         exit(0)
@@ -83,7 +79,6 @@ if __name__ == "__main__":
 
     IPython.embed()
     # First setup the environment and the robot
-    visualize = args.visualize
     planner.Listener()
 
-    main(robot, planning_env, planner, args.iterations, not args.noshow)
+    main(robot, planning_env, planner)

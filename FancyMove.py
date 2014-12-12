@@ -16,7 +16,7 @@ from scipy.spatial.distance import pdist
 from HerbRobot import HerbRobot
 
 class FancyMove():
-	def __init__(self, planning_env, robot):
+	def __init__(self, planning_env, robot, style):
 		self.planning_env = planning_env
 		self.robot = robot
 
@@ -47,7 +47,7 @@ class FancyMove():
 		self.dynamic_torque_old = [0 for i in xrange(self.n_joints)]
 
 		# threshholds 
-		self.thr = 0.05
+		self.thr = 0.02
 		self.vel_limit = [0.6, 0.6, 0.6, 0.6, 0.6, 0.6, 0.6]
 		self.num_stablize = 5
 		self.thr_v0 = 0.1
@@ -92,13 +92,13 @@ class FancyMove():
 		self.touch_time = 0
 		self.old_touch_time = 0
 
-		# upper arm: 0 3 4 1
+		# upper arm: 0 5 4 1
 		#			 y w g r
 
 		# lower arm: 2:inner pad 5:outter pad
 		#			 b           w(b) 
 		# 1: LSY 2: LSP 4: LE 
-		self.mapping = {0:-1, 3:-2, 4:1, 1:2, 5:4, 2:-4}
+		self.mapping = {0:-1, 5:-2, 4:1, 1:2, 3:-4, 2:4}
 
 		# write to file 
 		self.count_write = 0
@@ -108,8 +108,8 @@ class FancyMove():
 		self.f_v1 = open('data/v1', 'w')
 		self.f_v0 = open('data/v0', 'w')
 
-		2.60778745
-
+		self.style = style 
+		self.desiredConfig = self.robot.left_arm.GetEndEffectorTransform()
 
 		print "fancy move"
 
@@ -117,24 +117,23 @@ class FancyMove():
 
 	def getVelocityFromTouch(self):
 		''' when there is a change from r to t, set the velocity to 0.2 '''
-		touchSpeed = 0.15 
+		touchSpeed = 0.5 
 
 		if self.action == "t" and self.touch_time > self.old_touch_time:
 			(jointToMove, sign) = self.mapTouchPadToJoint(self.sensor_idx)
 
 			# simply change the sign of speed so it goes to opposite direction
 			self.v1[jointToMove] = sign * touchSpeed 
-			print 'v1 touchhhhhhhh'
-			print self.v1
+			print 'touch'
+			# print self.v1
 
-		if self.touch_time == self.old_touch_time and self.pushed == False:
+		if self.action == "r" :
 			(jointToMove, sign) = self.mapTouchPadToJoint(self.sensor_idx)
 			
-			self.v1[jointToMove] = 0.8 * self.v0[jointToMove]
+			self.v1[jointToMove] = 0.4*self.v0[jointToMove]
 
-			if self.v1[jointToMove] < 0.04: self.v1[jointToMove] = 0 
-
-			print 'n'
+			if abs(self.v1[jointToMove]) < 0.1: self.v1[jointToMove] = np.sign(self.v1[jointToMove])*00.01
+			print 'release'
 
 		# reset touch time stamp 
 		self.old_touch_time = self.touch_time
@@ -142,22 +141,42 @@ class FancyMove():
 
 	def getVelocityFromTouch2(self):
 		''' keep the end effector unmoved while moving one joint '''
-		
-		desiredAngle = 40.0/180*np.pi
+	
+		desiredEndEffectorMove = 0.5
+		duration = 0.5
+		a = 0.1
+		desired_offset = [0,0,0]
+		current_offset = (self.desiredConfig - self.robot.manip.GetEndEffectorTransform())[0:3,3]
 
 		if self.action == "t" and self.touch_time > self.old_touch_time:
-			jointToMove = mapTouchPadToJoint(self.sensor_idx)
-			
-			jacob = self.manip.CalculateJacobian()
-			
 
-			self.v1[jointToMove] = touchSpeed
+			# get desired offset from current config if touched 
+			if self.sensor_idx == 0:
+				desired_offset =  [0, 0, -a]
+			if self.sensor_idx == 5:
+				desired_offset = [-a, 0, 0] 
+			if self.sensor_idx == 4:
+				desired_offset = [0, 0, a] 
+			if self.sensor_idx == 1:
+				desired_offset = [a, 0, 0]  
+			if self.sensor_idx == 3:
+				desired_offset = [0, a, 0] 
+			if self.sensor_idx == 2:
+				desired_offset = [0, -a, 0] 
+			# get desired config 
+			self.desiredConfig[0:3,3] = self.robot.manip.GetEndEffectorTransform()[0:3,3] + desired_offset
 
-		if self.touch_time == self.old_touch_time:
-			self.v1[jointToMove] = 0.9 * self.v0[jointToMove] 
+		jacob = self.robot.manip.CalculateJacobian()
+		self.v1 = np.dot(np.linalg.pinv(jacob), current_offset/duration)
+		# print self.desiredConfig
+		# print current_offset
+		# print self.v1
+			
+		# if self.touch_time == self.old_touch_time:
+		# 	self.v1[jointToMove] = 0.5 * self.v0[jointToMove] 
 
 		# reset touch time stamp 
-		self.old_touch_time = self.touch_time
+		# self.old_touch_time = self.touch_time
 
 
 	def mapTouchPadToJoint(self, pad_idx):
@@ -351,7 +370,10 @@ class FancyMove():
 
 			# get new velocity from push then touch because touch is priority 
 			# self.getVelocityFromPush()
-			self.getVelocityFromTouch()  
+			if self.style == '1':
+				self.getVelocityFromTouch()  
+			elif self.style == '2':
+				self.getVelocityFromTouch2()  
 
 			# decrease the speed when the arm is near joint limit 
 			if not self.canPushFurther(i):
@@ -390,9 +412,7 @@ class FancyMove():
 					# if self.planning_env.isValid(robot_DOF_values)!=1:
 
 					try:
-						print 'try'
-						pass
-
+						# print self.v1 
 						# IPython.embed()
 						self.robot.left_arm.Servo(self.v1)
 					except:
@@ -501,7 +521,7 @@ class FancyMove():
 	def decay(self, value):
 		''' return a new value that's smaller with the value and between 0 and 1 '''
 
-		return np.sin(5*value)
+		return 1.5*value*value
 
 	def compare(self, model, data):
 	    ''' find out the smallest distance with the model '''
